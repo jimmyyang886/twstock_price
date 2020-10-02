@@ -14,17 +14,25 @@ import random
 import requests
 from codes import codes
 
+from requests.packages.urllib3.util.retry import Retry
+
 try:
     from json.decoder import JSONDecodeError
 except ImportError:
     JSONDecodeError = ValueError
 
+ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.61 Safari/537.36'
 
-headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36'}
+headers={'Connection': 'keep-alive',
+         'Referer': 'https://www.twse.com.tw/zh/page/trading/exchange/STOCK_DAY.html',
+         'Sec-Fetch-Site': 'same-origin',
+         'User-Agent': ua,
+         'X-Requested-With': 'XMLHttpRequest'}
+#print(headers)
 
 
-TWSE_BASE_URL = 'http://www.twse.com.tw/'
-TPEX_BASE_URL = 'http://www.tpex.org.tw/'
+TWSE_BASE_URL = 'https://www.twse.com.tw/'
+TPEX_BASE_URL = 'https://www.tpex.org.tw/'
 DATATUPLE = namedtuple('Data', ['date', 'capacity', 'turnover', 'open',
                                 'high', 'low', 'close', 'change', 'transaction'])
 
@@ -51,30 +59,47 @@ class TWSEFetcher(BaseFetcher):
     def __init__(self):
         pass
 
-    def fetch(self, year: int, month: int, sid: str, retry: int=5):
-        params = {'date': '%d%02d01' % (year, month), 'stockNo': sid}
-        for retry_i in range(retry):
-            r = requests.get(self.REPORT_URL, params=params, headers=headers)
-            try:
-                data = r.json()
-                #print(data)
-            except JSONDecodeError:
-                print('JSONDecodeError:{}, retry={}'.format(sid, retry_i))
-                time.sleep(random.uniform(2,5))
-                continue
-            else:
-                break
-            time.sleep(random.uniform(2,5))
-        else:
-            # Fail in all retries
-            data = {'stat': '', 'data': []}
+    def fetch(self, year: int, month: int, sid: str):
+    #def fetch(self, year: int, month: int, sid: str, retry: int=3):
+        params = {'response': 'json', 'date': '%d%02d01' % (year, month), 'stockNo': sid}
+        
+        #for retry_i in range(retry):
+        ss=requests.session()
+        
+        retry = Retry(
+        total=3,
+        read=3,
+        connect=0,
+        backoff_factor=5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        method_whitelist=('GET', 'POST'),
+    )
+  
+        ss.mount('https://', requests.adapters.HTTPAdapter(max_retries=retry))
+        r = ss.get(self.REPORT_URL, params=params, headers=headers, timeout=5)
 
-        if data['stat'] == 'OK':
-            data['data'] = self.purify(data)
-        else:
-            data['data'] = []
-            
-        time.sleep(random.uniform(5,10))
+        #r = requests.get(self.REPORT_URL, params=params, headers=headers, timeout=5)
+
+        try:
+            data = r.json()
+
+            if data['stat'] == 'OK':
+                data['data'] = self.purify(data)
+            else:
+                data['data'] = []
+                print('data is empty:{}'.format(sid))
+        except JSONDecodeError:
+            #print('JSONDecodeError:{}, retry={}'.format(sid, retry_i))
+            print('JSONDecodeError:{}'.format(sid))
+            #time.sleep(random.uniform(3,6))
+            #pass
+            #continue
+        except requests.exceptions.RequestException as e:
+            print(e)
+        #else:
+            #print(r.status_code)
+        #    break
+        time.sleep(random.uniform(3,6))
         return data
 
     def _make_datatuple(self, data):
@@ -148,7 +173,7 @@ class TPEXFetcher(BaseFetcher):
 
 class Stock(object):
 
-    def __init__(self, sid: str, initial_fetch: bool=True):
+    def __init__(self, sid: str, initial_fetch: bool=False):
         self.sid = sid
         self.fetcher = TWSEFetcher(
         ) if codes[sid].market == '上市' else TPEXFetcher()
