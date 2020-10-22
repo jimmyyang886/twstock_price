@@ -1,0 +1,19 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+
+[packages]
+'pandas' ='*'
+"requests"= '*'
+"pymysql" = '*'
+'sqlalchemy'= '*'
+'beautifulsoup4'= '*'
+'lxml'= '*'
+'cryptography'= '*'
+
+
+[requires]
+python_version = "3.7"

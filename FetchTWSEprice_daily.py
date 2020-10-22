@@ -1,26 +1,23 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Modify dlcheck
-
-# In[140]:
-
-
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from requests.exceptions import ConnectionError
 
-from TWstockPrice import Stock
+#from TWstockPrice import Stock
+from TWstockPrice_proxy import Stock
 from codes import codes
 from codes import fetch
 
+import requests.packages.urllib3
+requests.packages.urllib3.disable_warnings()
+
 fetch.__update_codes()
 rootdir='/home/spark/PycharmProjects/Stock_Price_API'
-
-
 
 #False means no data update -- by 0050
 def latestcheck(year, month):
@@ -28,15 +25,17 @@ def latestcheck(year, month):
     code='0050'
     stock= Stock(code)
     stock.fetch(year, month)
-    
+
     if stock.data!=[]:
         datelist=[]
         for data in stock.data:
             datelist.append(data.date)
-            
+
         #print(datelist)
-        if datetime.today().date()>max(datelist).date(): 
-            return False
+    if datetime.today().date()>max(datelist).date() and (datetime.now().hour>14):
+        return False
+    elif (datetime.today()-timedelta(days=1)).date()>max(datelist).date():
+        return False
     else:
         return True
     
@@ -44,24 +43,6 @@ year=datetime.today().date().year
 month=datetime.today().date().month
 #print(year, month)
 #print(latestcheck(year, month))
-
-
-# def dlcheck(path, ym):
-#     filename=os.listdir(path)
-#     code_cap=[]
-    
-#     for _file in filename:
-#         code_cap.append(_file[:-8])
-#     code_cap=set(code_cap)
-#     undownload=[]
-    
-#     for code, v in codes.items():
-#         if (v.type=="股票" and v.market=="上市") or code == '0050':
-#             fc='{}_{:%Y-%m}'.format(code, ym)
-#             if fc not in code_cap:
-#                 undownload.append(fc)
-#             #print('undownloaded:{}'.format(fc))         
-#     return undownload
 
 def dlcheck_daily(path, ymd):
     filename=os.listdir(path)
@@ -77,8 +58,6 @@ def dlcheck_daily(path, ymd):
         
     codeday_cap=set(codeday_cap)
     undownload=[]
-    
-    #print(codeday_cap)
     
     for code, v in codes.items():
         if (v.type=="股票" and v.market=="上市") or code == '0050':
@@ -105,8 +84,15 @@ if not os.path.exists(jsonpath):
     os.mkdir(jsonpath)
 
     
-ymd=datetime.strptime(str(datetime.today().date()), "%Y-%m-%d")
-#ymd=datetime(2020,10,7)
+if(datetime.now().hour>14):
+    year=datetime.today().date().year
+    month=datetime.today().date().month
+    ymd=datetime.strptime(str(datetime.today().date()), "%Y-%m-%d")
+else:
+    year=(datetime.today()-timedelta(days=1)).date().year
+    month=(datetime.today()-timedelta(days=1)).date().month
+    ymd=datetime.strptime(str((datetime.today()-timedelta(days=1)).date()), "%Y-%m-%d")
+
 undownload=dlcheck_daily(jsonpath, ymd)
 
 #print('undownlowed count:', len(undownload))
@@ -114,7 +100,6 @@ undownload=dlcheck_daily(jsonpath, ymd)
 
 stockDict={}
 stockList=[]
-
 
 cycle=0
 while len(undownload)!=0:
@@ -134,14 +119,27 @@ while len(undownload)!=0:
             stockDict={}
             if len(stock.data) == 0:
                 print('no data:{}'.format(code))
-                filename=fc+'-ng.json'
-                
-                with open(jsonpath+'/'+filename, 'w') as f:
+                if datetime.today().hour>14:
+                    filename = code + '_' + '{:%Y-%m-%d}'.format(datetime.today().date()) + '.json'
+                else:
+                    filename = code + '_' + '{:%Y-%m-%d}'.format((datetime.today() - timedelta(days=1)).date()) + '.json'
+
+                print('write to:', filename)
+                with open(jsonpath + '/' + fc + '-ng.json', 'w') as f:
                     json.dump(stockDict, f)
+                continue
+
+            elif stock.data[0] == 'JSONDecodeError':
+                print(stock.data)
+                continue
 
             else:
-                if stock.date[-1].date()< datetime.today().date():#當天未有股價
-                    with open(jsonpath+'/'+fc+'-ng.json', 'w') as f: 
+                if stock.date[-1].date() < datetime.today().date() and datetime.today().hour > 14:  # 當天未有股價
+                    with open(jsonpath + '/' + fc + '-ng.json', 'w') as f:
+                        json.dump(stockDict, f)
+                        break
+                elif stock.date[-1].date() < (datetime.today() - timedelta(days=1)).date():  # 當天未有股價
+                    with open(jsonpath + '/' + fc + '-ng.json', 'w') as f:
                         json.dump(stockDict, f)
                         break
                 else:
@@ -161,25 +159,16 @@ while len(undownload)!=0:
                             with open(jsonpath+'/'+filename, 'w') as f:
                                 json.dump(stockDict, f)
                         else:
-                            print('{} already download'.format(filename))
-
-                        
+                            #print('{} already download'.format(filename))
+                            pass
 
         except ConnectionError:
-            undownload=dlcheck_daily(jsonpath, ymd)
-            print('ConnectionError')
-            #break
-            time.sleep(30)
-            continue
+        #      undownload=dlcheck_daily(jsonpath, ymd)
+              print('ConnectionError')
+              time.sleep(30)
+              continue
                 
     undownload=dlcheck_daily(jsonpath, ymd)
     print('undownlowed count:', len(undownload))           
 
 print('complete!!')
-
-
-# In[ ]:
-
-
-
-
